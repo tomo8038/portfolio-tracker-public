@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Tracker | 投資組合追蹤</title>
+    <meta name="description" content="純本地端投資組合追蹤應用程式，雙擊即用，資料安全存於瀏覽器">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="css/index.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- 主應用程式 (直接顯示，無需登入) -->
+        <div id="main-app" class="screen">
+            <!-- 側邊欄 -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo-small">
+                        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+                            <rect width="64" height="64" rx="16" fill="url(#logo-gradient-sm)" />
+                            <path d="M20 44V28L32 20L44 28V44" stroke="white" stroke-width="3" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                            <defs>
+                                <linearGradient id="logo-gradient-sm" x1="0" y1="0" x2="64" y2="64">
+                                    <stop stop-color="#6366f1" />
+                                    <stop offset="1" stop-color="#8b5cf6" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div class="app-title-group">
+                        <span class="app-name">Portfolio</span>
+                        <div class="version-tag" style="font-size: 10px; opacity: 0.5;">v2.0 Local</div>
+                    </div>
+                </div>
+
+                <nav class="sidebar-nav">
+                    <a href="#" class="nav-item active" data-view="dashboard">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7" />
+                            <rect x="14" y="3" width="7" height="7" />
+                            <rect x="14" y="14" width="7" height="7" />
+                            <rect x="3" y="14" width="7" height="7" />
+                        </svg>
+                        儀表板
+                    </a>
+                    <a href="#" class="nav-item" data-view="portfolio">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path
+                                d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                        </svg>
+                        持股分析
+                    </a>
+                    <a href="#" class="nav-item" data-view="performance">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                            <polyline points="17 6 23 6 23 12"></polyline>
+                        </svg>
+                        績效分析
+                    </a>
+                    <a href="#" class="nav-item" data-view="transactions">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                            <polyline points="14,2 14,8 20,8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                        </svg>
+                        交易紀錄
+                    </a>
+                    <a href="#" class="nav-item" data-view="import">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                            <polyline points="17,8 12,3 7,8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        匯入資料
+                    </a>
+                    <a href="#" class="nav-item" data-view="settings">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="3" />
+                            <path
+                                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+                        </svg>
+                        設定
+                    </a>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" style="background: var(--bg-tertiary); border-radius: 50%; padding: 4px;">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        <span>本地模式</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 主內容區 -->
+            <main class="main-content">
+                <!-- 儀表板視圖 -->
+                <div id="view-dashboard" class="view active">
+                    <header class="view-header">
+                        <h2>儀表板</h2>
+                        <div class="header-actions">
+                            <span id="last-updated" class="text-muted">最後更新: --</span>
+
+                            <button id="refresh-btn" class="btn btn-secondary">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="23,4 23,10 17,10" />
+                                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                                </svg>
+                                重新整理
+                            </button>
+                        </div>
+                    </header>
+
+                    <!-- KPI Cards -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-label">總資產</div>
+                            <div class="kpi-value" id="kpi-net-worth">$0.00</div>
+                            <div class="kpi-change neutral" id="kpi-net-worth-change">--</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">總損益</div>
+                            <div class="kpi-value" id="kpi-total-pnl">$0.00</div>
+                            <div class="kpi-change neutral" id="kpi-total-pnl-pct">0.00%</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">年化報酬率 (XIRR)</div>
+                            <div class="kpi-value" id="kpi-xirr">0.00%</div>
+                            <div class="kpi-subtext">時間加權</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">夏普值</div>
+                            <div class="kpi-value" id="kpi-sharpe">0.00</div>
+                            <div class="kpi-subtext">風險調整報酬</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">最大回撤 (MDD)</div>
+                            <div class="kpi-value loss" id="kpi-mdd">0.00%</div>
+                            <div class="kpi-subtext">歷史最大跌幅</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-label">Beta</div>
+                            <div class="kpi-value" id="kpi-beta">0.00</div>
+                            <div class="kpi-subtext">相對大盤波動</div>
+                        </div>
+                    </div>
+
+                    <!-- 圖表區 -->
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <div class="chart-title-group">
+                                    <h3>資產走勢</h3>
+                                    <div class="time-range-group">
+                                        <button class="range-btn" data-range="1M">1M</button>
+                                        <button class="range-btn" data-range="3M">3M</button>
+                                        <button class="range-btn" data-range="6M">6M</button>
+                                        <button class="range-btn" data-range="YTD">YTD</button>
+                                        <button class="range-btn" data-range="1Y">1Y</button>
+                                        <button class="range-btn active" data-range="ALL">ALL</button>
+                                    </div>
+                                </div>
+                                <div class="chart-legend">
+                                    <span class="legend-item"><span class="legend-dot portfolio"></span>我的投資組合</span>
+                                    <span class="legend-item"><span class="legend-dot benchmark"></span>S&P 500</span>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="portfolio-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>資產配置</h3>
+                                <select id="allocation-type" class="select-small">
+                                    <option value="symbol">按標的</option>
+                                    <option value="sector">按產業</option>
+                                    <option value="type">按類型</option>
+                                </select>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="allocation-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-card chart-full-width">
+                            <div class="chart-header">
+                                <h3>年度績效</h3>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="data-table" id="yearly-performance-table">
+                                    <thead>
+                                        <tr>
+                                            <th>年份</th>
+                                            <th class="text-right">期初資產</th>
+                                            <th class="text-right">淨投入</th>
+                                            <th class="text-right">獲利金額</th>
+                                            <th class="text-right">年報酬率</th>
+                                            <th class="text-right">期末資產</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="yearly-performance-tbody">
+                                        <!-- 由 JS 填入 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 持股分析視圖 -->
+                <div id="view-portfolio" class="view">
+                    <header class="view-header">
+                        <h2>持股分析</h2>
+                    </header>
+
+                    <div class="table-card">
+                        <h3>目前持股</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table" id="holdings-table">
+                                <thead>
+                                    <tr>
+                                        <th>代號</th>
+                                        <th>名稱</th>
+                                        <th class="text-right">股數</th>
+                                        <th class="text-right">平均成本</th>
+                                        <th class="text-right">現價</th>
+                                        <th class="text-right">市值</th>
+                                        <th class="text-right">損益</th>
+                                        <th class="text-right">損益%</th>
+                                        <th class="text-right">佔比</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="holdings-tbody">
+                                    <!-- 由 JS 填入 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <h3>已實現損益</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table" id="realized-table">
+                                <thead>
+                                    <tr>
+                                        <th>賣出日期</th>
+                                        <th>代號</th>
+                                        <th class="text-right">股數</th>
+                                        <th class="text-right">買入成本</th>
+                                        <th class="text-right">賣出價格</th>
+                                        <th class="text-right">實現損益</th>
+                                        <th class="text-right">報酬率</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="realized-tbody">
+                                    <!-- 由 JS 填入 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 績效分析視圖 -->
+                <div id="view-performance" class="view">
+                    <header class="view-header">
+                        <h2>績效分析</h2>
+                        <div class="header-actions">
+                            <button id="refresh-perf-btn" class="btn btn-secondary" onclick="App.refreshPerformance()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M23 4v6h-6"></path>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                                重新計算
+                            </button>
+                        </div>
+                    </header>
+                    <div class="card">
+                        <div id="performance-loading" class="text-center hidden" style="padding: 20px;">
+                            <span class="spinner"></span> 正在計算歷史績效 (XIRR)...
+                        </div>
+                        <div id="performance-table"></div>
+                    </div>
+                </div>
+
+                <!-- 交易紀錄視圖 -->
+                <div id="view-transactions" class="view">
+                    <header class="view-header">
+                        <h2>交易紀錄</h2>
+                        <button class="btn btn-primary" id="add-transaction-btn"
+                            onclick="App.switchView('import')">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            新增交易
+                        </button>
+                    </header>
+
+                    <div class="table-card">
+                        <div class="table-wrapper">
+                            <table class="data-table" id="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>日期</th>
+                                        <th>類型</th>
+                                        <th>代號</th>
+                                        <th class="text-right">股數</th>
+                                        <th class="text-right">價格</th>
+                                        <th class="text-right">手續費</th>
+                                        <th class="text-right">總金額</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-tbody">
+                                    <!-- 由 JS 填入 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 匯入資料視圖 -->
+                <div id="view-import" class="view">
+                    <header class="view-header">
+                        <h2>匯入資料</h2>
+                    </header>
+
+                    <div class="import-section">
+                        <div class="import-card">
+                            <h3>CSV 匯入</h3>
+                            <p>支援 Firstrade、Charles Schwab、Interactive Brokers、複委託 (元大/富邦) 格式</p>
+
+                            <div class="form-group">
+                                <label for="broker-select">選擇券商格式</label>
+                                <select id="broker-select" class="form-control">
+                                    <option value="auto">自動偵測</option>
+                                    <option value="firstrade">Firstrade</option>
+                                    <option value="schwab">Charles Schwab</option>
+                                    <option value="ibkr">Interactive Brokers</option>
+                                    <option value="tw-yuanta">元大複委託</option>
+                                    <option value="tw-fubon">富邦複委託</option>
+                                    <option value="tw-sinopac">永豐台股</option>
+                                </select>
+                            </div>
+
+                            <div class="upload-zone" id="csv-upload-zone">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="1.5">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                    <polyline points="17,8 12,3 7,8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                                <p>拖放 CSV 檔案至此，或點擊選擇檔案</p>
+                                <input type="file" id="csv-file-input" accept=".csv" hidden>
+                            </div>
+
+                            <div id="csv-preview" class="csv-preview hidden">
+                                <h4>預覽 (前 5 筆)</h4>
+                                <div class="table-wrapper">
+                                    <table class="data-table" id="csv-preview-table">
+                                        <thead id="csv-preview-thead"></thead>
+                                        <tbody id="csv-preview-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="import-actions">
+                                    <span id="csv-row-count">0 筆交易記錄</span>
+                                    <button class="btn btn-primary" id="confirm-import-btn">確認匯入</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="import-card">
+                            <h3>手動輸入</h3>
+                            <form id="manual-transaction-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tx-date">交易日期</label>
+                                        <input type="date" id="tx-date" class="form-control" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tx-type">交易類型</label>
+                                        <select id="tx-type" class="form-control" required>
+                                            <option value="BUY">買入</option>
+                                            <option value="SELL">賣出</option>
+                                            <option value="DIVIDEND">股利</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tx-symbol">股票代號</label>
+                                        <input type="text" id="tx-symbol" class="form-control" placeholder="如 AAPL"
+                                            required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tx-quantity">股數</label>
+                                        <input type="number" id="tx-quantity" class="form-control" step="0.0001" min="0"
+                                            required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tx-price">價格</label>
+                                        <input type="number" id="tx-price" class="form-control" step="0.01" min="0"
+                                            required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tx-fees">手續費</label>
+                                        <input type="number" id="tx-fees" class="form-control" step="0.01" min="0"
+                                            value="0">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tx-notes">備註</label>
+                                        <input type="text" id="tx-notes" class="form-control" placeholder="選填">
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">新增交易</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 設定視圖 -->
+                <div id="view-settings" class="view">
+                    <header class="view-header">
+                        <h2>設定</h2>
+                    </header>
+
+                    <div class="settings-section">
+                        <div class="settings-card">
+                            <h3>顯示偏好</h3>
+                            <div class="form-group">
+                                <label>漲跌顏色</label>
+                                <div class="radio-group">
+                                    <label class="radio-label">
+                                        <input type="radio" name="color-scheme" value="us" checked>
+                                        <span class="radio-text">美股習慣 <span class="profit">+綠</span> / <span
+                                                class="loss">-紅</span></span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="color-scheme" value="tw">
+                                        <span class="radio-text">台股習慣 <span class="loss">+紅</span> / <span
+                                                class="profit">-綠</span></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="currency-display">顯示貨幣</label>
+                                <select id="currency-display" class="form-control">
+                                    <option value="USD">USD ($)</option>
+                                    <option value="TWD">TWD (NT$)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="benchmark-symbol">基準指數</label>
+                                <input type="text" id="benchmark-symbol" class="form-control" value="^GSPC"
+                                    placeholder="如 ^GSPC (S&P 500)">
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <h3>資料管理</h3>
+                            <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                所有資料安全儲存於瀏覽器的 IndexedDB 中，不會傳送至任何伺服器。
+                            </p>
+                            <div class="cache-info">
+                                <p>快取資料量: <span id="cache-size">0 KB</span></p>
+                                <p>最後同步: <span id="last-sync">--</span></p>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                                <button class="btn btn-secondary" id="export-data-btn">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                        <polyline points="7,10 12,15 17,10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
+                                    匯出備份
+                                </button>
+                                <button class="btn btn-danger" id="clear-cache-btn">清除所有資料</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div id="toast-container"></div>
+
+    <!-- JavaScript (v2.0 Local) -->
+    <script src="js/config.js?v=2.0_local"></script>
+    <script src="js/utils/finance.js?v=2.0_local"></script>
+    <script src="js/utils/csvParser.js?v=2.0_local"></script>
+    <script src="js/services/cache.js?v=2.0_local"></script>
+    <script src="js/services/priceService.js?v=2.0_local"></script>
+    <script src="js/components/charts.js?v=2.0_local"></script>
+    <script src="js/components/dashboard.js?v=2.0_local"></script>
+    <script src="js/components/portfolio.js?v=2.0_local"></script>
+    <script src="js/components/performance.js?v=2.0_local"></script>
+    <script src="js/components/transactions.js?v=2.0_local"></script>
+    <script src="js/app.js?v=2.0_local"></script>
+</body>
+
+</html>
