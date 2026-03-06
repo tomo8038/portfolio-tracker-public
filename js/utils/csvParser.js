@@ -72,6 +72,12 @@ const CSVParser = {
      */
     detectBroker(headers) {
         const headerStr = headers.join(',').toLowerCase();
+        const lowerHeaders = headers.map(h => h.trim().toLowerCase());
+
+        // TD Ameritrade 格式
+        if (lowerHeaders.includes('transaction id') && lowerHeaders.includes('description') && lowerHeaders.includes('commission')) {
+            return 'td';
+        }
 
         // Schwab 格式: Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount
         if (headerStr.includes('date') && headerStr.includes('action') &&
@@ -866,6 +872,217 @@ const CSVParser = {
     },
 
     /**
+     * 解析 TD 交易類型
+     */
+    parseTDAction(description) {
+        const descLower = (description || '').toLowerCase();
+
+        if (descLower.includes('bought')) return { action: 'BUY' };
+        if (descLower.includes('sold')) return { action: 'SELL' };
+        if (descLower.includes('ordinary dividend') || descLower.includes('qualified dividend') || descLower.includes('dividend')) return { action: 'DIVIDEND' };
+        if (descLower.includes('stock split')) return { action: 'SPLIT' };
+        if (descLower.includes('w-8 withholding') || descLower.includes('tax')) return { action: 'TAX' };
+        if (descLower.includes('wire incoming') || descLower.includes('deposit')) return { action: 'DEPOSIT' };
+        if (descLower.includes('wire outgoing') || descLower.includes('withdrawal')) return { action: 'WITHDRAW' };
+        if (descLower.includes('interest adjustment') || descLower.includes('interest')) return { action: 'INTEREST' };
+        if (descLower.includes('transfer')) return { action: 'TRANSFER' };
+
+        return { action: 'UNKNOWN' };
+    },
+
+    /**
+     * 解析 TD Ameritrade CSV (專用方法)
+     */
+    parseTD(rows, headers) {
+        const columnIndices = {
+            date: this.findColumnIndex(headers, ['date']),
+            description: this.findColumnIndex(headers, ['description']),
+            quantity: this.findColumnIndex(headers, ['quantity']),
+            symbol: this.findColumnIndex(headers, ['symbol']),
+            price: this.findColumnIndex(headers, ['price']),
+            commission: this.findColumnIndex(headers, ['commission']),
+            regFee: this.findColumnIndex(headers, ['reg fee']),
+            amount: this.findColumnIndex(headers, ['amount'])
+        };
+
+        const transactions = [];
+        const splitEvents = [];
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+
+            const dateStr = row[columnIndices.date] || '';
+            const description = row[columnIndices.description] || '';
+            let symbol = (row[columnIndices.symbol] || '').trim().toUpperCase();
+            const quantity = this.parseNumber(row[columnIndices.quantity]);
+            const price = this.parseNumber(row[columnIndices.price]);
+            const commission = Math.abs(this.parseNumber(row[columnIndices.commission]));
+            const regFee = Math.abs(this.parseNumber(row[columnIndices.regFee]));
+            const fees = commission + regFee;
+            const amount = this.parseNumber(row[columnIndices.amount]);
+
+            const date = this.parseDate(dateStr);
+            if (!date) continue;
+
+            const actionInfo = this.parseTDAction(description);
+
+            // 從 description 嘗試提取 symbol (例如: ORDINARY DIVIDEND (VT))
+            if (!symbol) {
+                const match = description.match(/\((.*?)\)/);
+                if (match) {
+                    symbol = match[1].toUpperCase();
+                }
+            }
+            if (!symbol && (actionInfo.action === 'DEPOSIT' || actionInfo.action === 'WITHDRAW' || actionInfo.action === 'INTEREST')) {
+                symbol = 'CASH';
+            }
+
+            switch (actionInfo.action) {
+                case 'BUY':
+                    if (symbol && quantity !== 0) {
+                        transactions.push({
+                            date,
+                            symbol,
+                            action: 'BUY',
+                            quantity: Math.abs(quantity),
+                            price: price,
+                            amount: Math.abs(amount) || (Math.abs(quantity) * price + fees),
+                            fees,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'SELL':
+                    if (symbol && quantity !== 0) {
+                        transactions.push({
+                            date,
+                            symbol,
+                            action: 'SELL',
+                            quantity: Math.abs(quantity),
+                            price: price,
+                            amount: Math.abs(amount) || (Math.abs(quantity) * price - fees),
+                            fees,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'DIVIDEND':
+                    if (amount > 0) {
+                        transactions.push({
+                            date,
+                            symbol: symbol || 'CASH',
+                            action: 'DIVIDEND',
+                            quantity: 0,
+                            price: 0,
+                            amount: Math.abs(amount),
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'TAX':
+                    if (amount !== 0) {
+                        transactions.push({
+                            date,
+                            symbol: symbol || 'TAX',
+                            action: 'TAX',
+                            quantity: 0,
+                            price: 0,
+                            amount: amount, // 保留負數
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'SPLIT':
+                    if (symbol && quantity !== 0) {
+                        splitEvents.push({
+                            date,
+                            symbol,
+                            quantity: quantity,
+                            price: price || 0,
+                            originalAction: description
+                        });
+
+                        transactions.push({
+                            date,
+                            symbol,
+                            action: 'SPLIT',
+                            quantity: Math.abs(quantity),
+                            price: price || 0,
+                            amount: 0,
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description,
+                            isSplit: true
+                        });
+                    }
+                    break;
+                case 'DEPOSIT':
+                    if (amount > 0) {
+                        transactions.push({
+                            date,
+                            symbol: 'CASH',
+                            action: 'DEPOSIT',
+                            quantity: 0,
+                            price: 0,
+                            amount: Math.abs(amount),
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'WITHDRAW':
+                    if (amount !== 0) {
+                        transactions.push({
+                            date,
+                            symbol: 'CASH',
+                            action: 'WITHDRAW',
+                            quantity: 0,
+                            price: 0,
+                            amount: Math.abs(amount),
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+                case 'INTEREST':
+                    if (amount !== 0) {
+                        transactions.push({
+                            date,
+                            symbol: 'INTEREST',
+                            action: 'INTEREST',
+                            quantity: 0,
+                            price: 0,
+                            amount: Math.abs(amount),
+                            fees: 0,
+                            currency: 'USD',
+                            originalAction: description,
+                            description
+                        });
+                    }
+                    break;
+            }
+        }
+
+        transactions.splitEvents = splitEvents;
+        return transactions;
+    },
+
+    /**
      * 主解析方法
      */
     parse(csvText, brokerType = 'auto') {
@@ -879,8 +1096,10 @@ const CSVParser = {
 
         let transactions = [];
 
-        // Schwab 使用專用解析器
-        if (broker === 'schwab') {
+        // TD 使用專用解析器
+        if (broker === 'td') {
+            transactions = this.parseTD(rows, headers);
+        } else if (broker === 'schwab') {
             transactions = this.parseSchwab(rows, headers);
         } else if (broker === 'tw-sinopac') {
             // 永豐台股使用專用解析器

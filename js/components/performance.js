@@ -91,14 +91,17 @@ const Performance = {
                 // 扣除賣出手續費
                 if (tx.action === 'SELL') realized -= (tx.fees || 0);
             } else if (tx.action === 'SPLIT') {
-                // 分割調整
+                // 股票分割：往前調整所有現有批次的成本
+                // tx.quantity = 分割後新增的股數
+                // 分割比例 = (現有+新增) / 現有
                 const currentQty = positions.reduce((sum, p) => sum + p.q, 0);
                 if (currentQty > 0) {
                     const ratio = (currentQty + tx.quantity) / currentQty;
                     positions.forEach(p => {
-                        p.q *= ratio;
-                        p.p /= ratio;
+                        p.q *= ratio;       // 股數 × ratio
+                        p.p /= ratio;       // 每股成本 ÷ ratio（總成本不變）
                     });
+                    console.log(`[Performance] SPLIT ${tx.symbol}: ratio=${ratio.toFixed(4)}, adjusted ${positions.length} lots`);
                 }
             }
         }
