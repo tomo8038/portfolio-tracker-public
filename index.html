@@ -106,7 +106,9 @@
 
                 <div class="sidebar-footer">
                     <div class="user-info">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" style="background: var(--bg-tertiary); border-radius: 50%; padding: 4px;">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
+                            stroke-width="1.5"
+                            style="background: var(--bg-tertiary); border-radius: 50%; padding: 4px;">
                             <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
                             <circle cx="12" cy="7" r="4" />
                         </svg>
@@ -313,8 +315,7 @@
                 <div id="view-transactions" class="view">
                     <header class="view-header">
                         <h2>交易紀錄</h2>
-                        <button class="btn btn-primary" id="add-transaction-btn"
-                            onclick="App.switchView('import')">
+                        <button class="btn btn-primary" id="add-transaction-btn" onclick="App.switchView('import')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2">
                                 <line x1="12" y1="5" x2="12" y2="19" />
@@ -379,7 +380,7 @@
                                     <line x1="12" y1="3" x2="12" y2="15" />
                                 </svg>
                                 <p>拖放 CSV 檔案至此，或點擊選擇檔案</p>
-                                <input type="file" id="csv-file-input" accept=".csv" hidden>
+                                <input type="file" id="csv-file-input" accept=".csv" multiple hidden>
                             </div>
 
                             <div id="csv-preview" class="csv-preview hidden">
@@ -499,10 +500,11 @@
                             </div>
                             <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
                                 <button class="btn btn-secondary" id="export-data-btn">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                                        <polyline points="7,10 12,15 17,10"/>
-                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                                        <polyline points="7,10 12,15 17,10" />
+                                        <line x1="12" y1="15" x2="12" y2="3" />
                                     </svg>
                                     匯出備份
                                 </button>
@@ -518,18 +520,18 @@
     <!-- Toast 通知 -->
     <div id="toast-container"></div>
 
-    <!-- JavaScript (v2.0 Local) -->
-    <script src="js/config.js?v=2.0_local"></script>
-    <script src="js/utils/finance.js?v=2.0_local"></script>
-    <script src="js/utils/csvParser.js?v=2.0_local"></script>
-    <script src="js/services/cache.js?v=2.0_local"></script>
-    <script src="js/services/priceService.js?v=2.0_local"></script>
-    <script src="js/components/charts.js?v=2.0_local"></script>
-    <script src="js/components/dashboard.js?v=2.0_local"></script>
-    <script src="js/components/portfolio.js?v=2.0_local"></script>
-    <script src="js/components/performance.js?v=2.0_local"></script>
-    <script src="js/components/transactions.js?v=2.0_local"></script>
-    <script src="js/app.js?v=2.0_local"></script>
+    <!-- JavaScript (v2.1) -->
+    <script src="js/config.js?v=2.1"></script>
+    <script src="js/utils/finance.js?v=2.1"></script>
+    <script src="js/utils/csvParser.js?v=2.1"></script>
+    <script src="js/services/cache.js?v=2.1"></script>
+    <script src="js/services/priceService.js?v=2.1"></script>
+    <script src="js/components/charts.js?v=2.1"></script>
+    <script src="js/components/dashboard.js?v=2.1"></script>
+    <script src="js/components/portfolio.js?v=2.1"></script>
+    <script src="js/components/performance.js?v=2.1"></script>
+    <script src="js/components/transactions.js?v=2.1"></script>
+    <script src="js/app.js?v=2.1"></script>
 </body>
 
 </html>
