@@ -276,7 +276,7 @@ const App = {
                 return;
             }
 
-            const { portfolioHistory, monthlyReturns, historicalPrices } = await Dashboard.calculateHistoricalReturns(
+            const { portfolioHistory, monthlyReturns, historicalPrices, benchmarkHistory } = await Dashboard.calculateHistoricalReturns(
                 this.transactions,
                 this.prices,
                 overview.holdings
@@ -297,6 +297,7 @@ const App = {
                 ...this.stats,
                 ...riskMetrics,
                 portfolioHistory,
+                benchmarkHistory,
                 yearlyPerformance
             };
 
@@ -340,7 +341,7 @@ const App = {
             const chartData = {
                 labels: this.stats.portfolioHistory.map(p => p.date),
                 portfolio: this.stats.portfolioHistory.map(p => p.value),
-                benchmark: []
+                benchmark: this.stats.benchmarkHistory ? this.stats.benchmarkHistory.map(p => p.value) : []
             };
             if (Charts.updatePortfolioChart) {
                 Charts.updatePortfolioChart('portfolio-chart', chartData);

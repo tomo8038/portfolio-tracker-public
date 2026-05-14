@@ -164,15 +164,20 @@ const Portfolio = {
      * @returns {Array<Object>} 已實現交易陣列
      */
     calculateRealizedTrades(transactions) {
+        // 使用 Dashboard.injectHardcodedSplits
+        const enrichedTransactions = typeof Dashboard !== 'undefined' && Dashboard.injectHardcodedSplits 
+            ? Dashboard.injectHardcodedSplits(transactions) 
+            : transactions;
+
         const positions = {}; // { symbol: [{ date, quantity, price }] }
         const realizedTrades = [];
 
         // 按日期排序
-        const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const sorted = [...enrichedTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         for (const tx of sorted) {
             // 跳過非相關交易類型
-            if (!['BUY', 'SELL', 'SPLIT'].includes(tx.action)) continue;
+            if (!['BUY', 'SELL', 'SPLIT', 'HARDCODED_SPLIT'].includes(tx.action)) continue;
 
             const symbol = tx.symbol;
             if (!symbol) continue;
@@ -188,15 +193,23 @@ const Portfolio = {
                     quantity: tx.quantity,
                     price: tx.price
                 });
-            } else if (tx.action === 'SPLIT') {
+            } else if (tx.action === 'SPLIT' || tx.action === 'HARDCODED_SPLIT') {
                 // 股票分割：調整所有現有批次
                 const lots = positions[symbol];
                 if (lots && lots.length > 0) {
                     const currentQuantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
                     if (currentQuantity > 0) {
-                        // tx.quantity 是分割後獲得的新股數
-                        const newTotalQuantity = currentQuantity + tx.quantity;
-                        const splitRatio = newTotalQuantity / currentQuantity;
+                        let splitRatio = 1;
+                        let newTotalQuantity = currentQuantity;
+
+                        if (tx.action === 'HARDCODED_SPLIT') {
+                            splitRatio = tx.ratio;
+                            newTotalQuantity = currentQuantity * splitRatio;
+                        } else {
+                            // tx.quantity 是分割後獲得的新股數
+                            newTotalQuantity = currentQuantity + tx.quantity;
+                            splitRatio = newTotalQuantity / currentQuantity;
+                        }
 
                         console.log(`[Portfolio] Stock Split: ${symbol}, ratio: ${splitRatio.toFixed(4)}`);
                         console.log(`  Before: ${currentQuantity} shares`);

@@ -107,19 +107,22 @@ const Charts = {
                         },
                         ticks: {
                             color: '#64748b',
-                            maxTicksLimit: 12, // 約每季一格
-                            autoSkip: true,
+                            maxTicksLimit: 20,
+                            autoSkip: false,
                             maxRotation: 0,
                             callback: function (val, index) {
-                                // 取得完整標籤 (YYYY-MM-DD)
                                 const label = this.getLabelForValue(val);
                                 if (!label) return '';
-                                // 簡化顯示為 MM-DD
                                 const parts = label.split('-');
                                 if (parts.length === 3) {
-                                    return `${parts[1]}-${parts[2]}`;
+                                    const month = parts[1];
+                                    const day = parts[2];
+                                    // 只在每月 1 號（或該月第一個交易日）且為 1 月或 7 月時顯示
+                                    if ((month === '01' || month === '07') && parseInt(day) <= 7) {
+                                        return `${parts[0]}-${month}`;
+                                    }
                                 }
-                                return label;
+                                return '';
                             }
                         }
                     },

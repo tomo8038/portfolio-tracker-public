@@ -896,12 +896,12 @@ const CSVParser = {
     parseTD(rows, headers) {
         const columnIndices = {
             date: this.findColumnIndex(headers, ['date']),
+            transactionId: this.findColumnIndex(headers, ['transaction id']),
             description: this.findColumnIndex(headers, ['description']),
             quantity: this.findColumnIndex(headers, ['quantity']),
             symbol: this.findColumnIndex(headers, ['symbol']),
             price: this.findColumnIndex(headers, ['price']),
-            commission: this.findColumnIndex(headers, ['commission']),
-            regFee: this.findColumnIndex(headers, ['reg fee']),
+            fees: this.findColumnIndex(headers, ['commissions & fees', 'commission']),
             amount: this.findColumnIndex(headers, ['amount'])
         };
 
@@ -910,171 +910,161 @@ const CSVParser = {
 
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
+            // TD 的結尾可能有一個字串 "(1 row(s) affected)" 或類似摘要
+            if (row.length < 3 || (row[0] && row[0].includes('***END OF FILE***'))) continue;
 
             const dateStr = row[columnIndices.date] || '';
             const description = row[columnIndices.description] || '';
-            let symbol = (row[columnIndices.symbol] || '').trim().toUpperCase();
-            const quantity = this.parseNumber(row[columnIndices.quantity]);
+            const rawSymbol = (row[columnIndices.symbol] || '').trim().toUpperCase();
+
+            // TD 的 Symbol 有時會包在 Description 裡，例如 "Bought 10 AAPL @ 150"
+            // 但如果它有專屬欄位就用專屬的
+            let symbol = rawSymbol;
+
+            const quantityRaw = row[columnIndices.quantity] || '';
+            let quantity = this.parseNumber(quantityRaw);
             const price = this.parseNumber(row[columnIndices.price]);
-            const commission = Math.abs(this.parseNumber(row[columnIndices.commission]));
-            const regFee = Math.abs(this.parseNumber(row[columnIndices.regFee]));
-            const fees = commission + regFee;
-            const amount = this.parseNumber(row[columnIndices.amount]);
+            const fees = Math.abs(this.parseNumber(row[columnIndices.fees]));
+            let amount = this.parseNumber(row[columnIndices.amount]);
 
             const date = this.parseDate(dateStr);
             if (!date) continue;
 
-            const actionInfo = this.parseTDAction(description);
+            const descLower = description.toLowerCase();
+            let action = 'UNKNOWN';
 
-            // 從 description 嘗試提取 symbol (例如: ORDINARY DIVIDEND (VT))
-            if (!symbol) {
-                const match = description.match(/\((.*?)\)/);
-                if (match) {
-                    symbol = match[1].toUpperCase();
+            // 判斷交易類型 (TD 主要看 Description)
+            if (descLower.includes('bought') || descLower.includes('buy')) {
+                action = 'BUY';
+            } else if (descLower.includes('sold') || descLower.includes('sell')) {
+                action = 'SELL';
+            } else if (descLower.includes('dividend') || descLower.includes('reinvest')) {
+                action = 'DIVIDEND';
+                // 如果是 DRIP，可能沒有 amount 但有 quantity
+                if (amount === 0 && quantity > 0 && price > 0) {
+                    amount = quantity * price;
+                }
+            } else if (descLower.includes('split')) {
+                action = 'SPLIT';
+            } else if (descLower.includes('tax') || descLower.includes('withholding')) {
+                action = 'TAX';
+                symbol = 'TAX';
+            } else if (descLower.includes('deposit') || descLower.includes('ach') || descLower.includes('wire incoming') || descLower.includes('client requested electronic funding receipt')) {
+                action = 'DEPOSIT';
+                symbol = 'CASH';
+            } else if (descLower.includes('withdraw') || descLower.includes('wire outgoing')) {
+                action = 'WITHDRAW';
+                symbol = 'CASH';
+            } else if (descLower.includes('interest')) {
+                action = 'INTEREST';
+                symbol = 'INTEREST';
+            } else if (descLower.includes('transfer')) {
+                // Asset Transfer (ACATS)
+                if (quantity > 0) action = 'TRANSFER_IN';
+                else if (quantity < 0) action = 'TRANSFER_OUT';
+            }
+
+            if (action === 'UNKNOWN') continue;
+
+            // 如果從獨立欄位抓不到 symbol，試著從 Description 拆
+            if (!symbol && (action === 'BUY' || action === 'SELL' || action === 'DIVIDEND' || action === 'TRANSFER_IN' || action === 'TRANSFER_OUT')) {
+                const parts = description.split(/\s+/);
+                // "Bought 10 AAPL @ 150" -> index 2 is symbol
+                if (descLower.startsWith('bought') || descLower.startsWith('sold')) {
+                    if (parts.length >= 3) symbol = parts[2].toUpperCase();
                 }
             }
-            if (!symbol && (actionInfo.action === 'DEPOSIT' || actionInfo.action === 'WITHDRAW' || actionInfo.action === 'INTEREST')) {
-                symbol = 'CASH';
-            }
 
-            switch (actionInfo.action) {
-                case 'BUY':
-                    if (symbol && quantity !== 0) {
-                        transactions.push({
-                            date,
-                            symbol,
-                            action: 'BUY',
-                            quantity: Math.abs(quantity),
-                            price: price,
-                            amount: Math.abs(amount) || (Math.abs(quantity) * price + fees),
-                            fees,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'SELL':
-                    if (symbol && quantity !== 0) {
-                        transactions.push({
-                            date,
-                            symbol,
-                            action: 'SELL',
-                            quantity: Math.abs(quantity),
-                            price: price,
-                            amount: Math.abs(amount) || (Math.abs(quantity) * price - fees),
-                            fees,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'DIVIDEND':
-                    if (amount > 0) {
-                        transactions.push({
-                            date,
-                            symbol: symbol || 'CASH',
-                            action: 'DIVIDEND',
-                            quantity: 0,
-                            price: 0,
-                            amount: Math.abs(amount),
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'TAX':
-                    if (amount !== 0) {
-                        transactions.push({
-                            date,
-                            symbol: symbol || 'TAX',
-                            action: 'TAX',
-                            quantity: 0,
-                            price: 0,
-                            amount: amount, // 保留負數
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'SPLIT':
-                    if (symbol && quantity !== 0) {
-                        splitEvents.push({
-                            date,
-                            symbol,
-                            quantity: quantity,
-                            price: price || 0,
-                            originalAction: description
-                        });
+            if (action === 'BUY' || action === 'SELL') {
+                if (!symbol || quantity === 0) continue;
+                const adjustedAmount = Math.abs(amount) || (Math.abs(quantity) * Math.abs(price));
+                transactions.push({
+                    date,
+                    symbol,
+                    action,
+                    quantity: Math.abs(quantity),
+                    price: Math.abs(price),
+                    amount: adjustedAmount,
+                    fees,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description
+                });
+            } else if (action === 'DIVIDEND') {
+                transactions.push({
+                    date,
+                    symbol: symbol || 'CASH',
+                    action: 'DIVIDEND',
+                    quantity: 0,
+                    price: 0,
+                    amount: Math.abs(amount),
+                    fees: 0,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description
+                });
+            } else if (action === 'SPLIT') {
+                splitEvents.push({
+                    date,
+                    symbol,
+                    quantity: quantity,
+                    price: price || 0,
+                    originalAction: description
+                });
 
-                        transactions.push({
-                            date,
-                            symbol,
-                            action: 'SPLIT',
-                            quantity: Math.abs(quantity),
-                            price: price || 0,
-                            amount: 0,
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description,
-                            isSplit: true
-                        });
-                    }
-                    break;
-                case 'DEPOSIT':
-                    if (amount > 0) {
-                        transactions.push({
-                            date,
-                            symbol: 'CASH',
-                            action: 'DEPOSIT',
-                            quantity: 0,
-                            price: 0,
-                            amount: Math.abs(amount),
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'WITHDRAW':
-                    if (amount !== 0) {
-                        transactions.push({
-                            date,
-                            symbol: 'CASH',
-                            action: 'WITHDRAW',
-                            quantity: 0,
-                            price: 0,
-                            amount: Math.abs(amount),
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
-                case 'INTEREST':
-                    if (amount !== 0) {
-                        transactions.push({
-                            date,
-                            symbol: 'INTEREST',
-                            action: 'INTEREST',
-                            quantity: 0,
-                            price: 0,
-                            amount: Math.abs(amount),
-                            fees: 0,
-                            currency: 'USD',
-                            originalAction: description,
-                            description
-                        });
-                    }
-                    break;
+                transactions.push({
+                    date,
+                    symbol,
+                    action: 'SPLIT',
+                    quantity: Math.abs(quantity),
+                    price: price || 0,
+                    amount: 0,
+                    fees: 0,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description,
+                    isSplit: true
+                });
+            } else if (action === 'TAX') {
+                transactions.push({
+                    date,
+                    symbol: 'TAX',
+                    action: 'TAX',
+                    quantity: 0,
+                    price: 0,
+                    amount: amount, // 保留負號或利用絕對值(端看邏輯)
+                    fees: 0,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description
+                });
+            } else if (action === 'DEPOSIT' || action === 'WITHDRAW' || action === 'INTEREST') {
+                if (amount === 0) continue;
+                transactions.push({
+                    date,
+                    symbol: symbol || 'CASH',
+                    action,
+                    quantity: 0,
+                    price: 0,
+                    amount: Math.abs(amount),
+                    fees: 0,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description
+                });
+            } else if (action === 'TRANSFER_IN' || action === 'TRANSFER_OUT') {
+                transactions.push({
+                    date,
+                    symbol,
+                    action,
+                    quantity: Math.abs(quantity),
+                    price: Math.abs(price),
+                    amount: 0,
+                    fees: 0,
+                    currency: 'USD',
+                    originalAction: description,
+                    description: description
+                });
             }
         }
 

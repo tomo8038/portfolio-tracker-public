@@ -112,7 +112,7 @@ const PriceService = {
         const results = {};
 
         // 並行請求，但限制並發數
-        const batchSize = 5;
+        const batchSize = 3;
         for (let i = 0; i < symbols.length; i += batchSize) {
             const batch = symbols.slice(i, i + batchSize);
             const promises = batch.map(async (symbol) => {
@@ -129,29 +129,88 @@ const PriceService = {
                 }
             });
             await Promise.all(promises);
+            // 批次間加入延遲避免被擋
+            if (i + batchSize < symbols.length) {
+                await new Promise(r => setTimeout(r, 1500));
+            }
         }
 
         return results;
     },
 
     /**
+     * 使用多個 CORS proxy 輪詢請求
+     */
+    async fetchWithProxies(targetUrl) {
+        // 若在本地伺服器執行 (透過 server.js)，優先使用本地 Proxy
+        const isLocalServer = window.location.protocol === 'http:' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+        // 請在此填寫您剛建立好的 Cloudflare Worker 網址
+        // 例如: const CLOUDFLARE_WORKER_URL = 'https://yahoo-proxy.yourname.workers.dev';
+        const CLOUDFLARE_WORKER_URL = 'https://proxy-worker.tomo305312.workers.dev/';
+
+        let proxies = [];
+
+        if (isLocalServer) {
+            // 從 https://query1.finance.yahoo.com/v8/finance/chart/... 擷取路徑
+            const urlObj = new URL(targetUrl);
+            const proxyPath = `/proxy/yahoo${urlObj.pathname}${urlObj.search}`;
+            proxies.push(proxyPath);
+        } else if (CLOUDFLARE_WORKER_URL) {
+            // 雲端 Worker Proxy 模式
+            const urlObj = new URL(targetUrl);
+            const proxyUrl = CLOUDFLARE_WORKER_URL.replace(/\/$/, '') + urlObj.pathname + urlObj.search;
+            proxies.push(proxyUrl);
+        }
+
+        // 備用公共代理 (目前多數已被 Yahoo 封鎖)
+        proxies.push(
+            `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
+        );
+
+        let lastError;
+        for (const proxyUrl of proxies) {
+            try {
+                const controller = new AbortController();
+                // 30 秒超時 (因為歷史股價查詢可能較慢)
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+                const response = await fetch(proxyUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const text = await response.text();
+                    try {
+                        const json = JSON.parse(text);
+                        // 處理 allorigins 的 get endpoint 格式
+                        if (proxyUrl.includes('allorigins.win/get') && json.contents) {
+                            return JSON.parse(json.contents);
+                        }
+                        return json;
+                    } catch (e) {
+                        throw new Error("Invalid JSON response from proxy");
+                    }
+                }
+            } catch (e) {
+                lastError = e;
+                console.warn(`Proxy failed: ${proxyUrl}`, e.message);
+                // 失敗後延遲一下再試下一個
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+        throw lastError || new Error("All proxies failed");
+    },
+
+    /**
      * 從 Yahoo Finance 公開 API 取得股價
-     * 使用 query1.finance.yahoo.com (公開端點，不需 API Key)
      */
     async fetchFromYahoo(symbol) {
         try {
             const yahooSymbol = this.normalizeSymbol(symbol);
-            // 使用 Yahoo Finance v8 quote endpoint (public)
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=1d&interval=1d`;
-            // 透過 CORS Proxy (cors.eu.org)
-            const url = `https://cors.eu.org/${targetUrl}`;
 
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
+            const data = await this.fetchWithProxies(targetUrl);
             const meta = data.chart?.result?.[0]?.meta;
             if (meta?.regularMarketPrice) {
                 return meta.regularMarketPrice;
@@ -159,43 +218,17 @@ const PriceService = {
 
             return 0;
         } catch (error) {
-            console.warn(`Yahoo Finance API 失敗 (${symbol}):`, error.message);
-            // 嘗試備用方法
-            return await this.fetchFromAlternative(symbol);
-        }
-    },
+            console.warn(`Yahoo Finance API 全部失敗 (${symbol}):`, error.message);
 
-    /**
-     * 備用股價來源 - 使用 Google Finance 頁面解析
-     */
-    async fetchFromAlternative(symbol) {
-        try {
-            // 備用: 使用另一個 CORS proxy
-            const yahooSymbol = this.normalizeSymbol(symbol);
-            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=1d&interval=1d`;
-            const url = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
-
-            const response = await fetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                const meta = data.chart?.result?.[0]?.meta;
-                if (meta?.regularMarketPrice) {
-                    return meta.regularMarketPrice;
-                }
-            }
-        } catch (e) {
-            console.warn(`備用 API 也失敗 (${symbol}):`, e.message);
-        }
-
-        try {
             // 回傳快取中的最後已知價格 (如果有)
-            const lastKnown = CacheService.localStorage.get(`price_${symbol}`);
-            if (lastKnown) {
-                console.log(`使用 ${symbol} 的最後已知快取價格: ${lastKnown}`);
-                return lastKnown;
-            }
-            return 0;
-        } catch (error) {
+            try {
+                const lastKnown = CacheService.localStorage.get(`price_${symbol}`);
+                if (lastKnown) {
+                    console.log(`使用 ${symbol} 的最後已知快取價格: ${lastKnown}`);
+                    return lastKnown;
+                }
+            } catch (e) { }
+
             return 0;
         }
     },
@@ -221,14 +254,8 @@ const PriceService = {
             const period2 = Math.floor(endDate.getTime() / 1000);
 
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1d`;
-            const url = `https://cors.eu.org/${targetUrl}`;
 
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
+            const data = await this.fetchWithProxies(targetUrl);
             const result = data.chart?.result?.[0];
             if (!result) return [];
 

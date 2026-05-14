@@ -70,6 +70,39 @@ const Dashboard = {
     },
 
     /**
+     * 注入缺失的股票分割交易 (解決 CSV 中缺少 SPLIT 導致的斷層)
+     */
+    injectHardcodedSplits(transactions) {
+        const HARDCODED_SPLITS = {
+            'SSO': [{ ratio: 2, splitDate: '2025-11-20' }],
+            'QLD': [{ ratio: 2, splitDate: '2025-11-20' }],
+            '0050.TW': [{ ratio: 4, splitDate: '2025-06-18' }]
+        };
+
+        const result = [...transactions];
+        for (const [sym, splits] of Object.entries(HARDCODED_SPLITS)) {
+            for (const split of splits) {
+                // 檢查是否已存在同日同股票的 SPLIT 或 HARDCODED_SPLIT
+                const exists = result.some(tx =>
+                    (tx.action === 'SPLIT' || tx.action === 'HARDCODED_SPLIT') &&
+                    tx.symbol === sym &&
+                    tx.date === split.splitDate
+                );
+                if (!exists) {
+                    result.push({
+                        date: split.splitDate,
+                        symbol: sym,
+                        action: 'HARDCODED_SPLIT',
+                        ratio: split.ratio,
+                        description: 'System Adjusted Split'
+                    });
+                }
+            }
+        }
+        return result;
+    },
+
+    /**
      * 從交易計算投資組合統計
      */
     /**
@@ -213,8 +246,10 @@ const Dashboard = {
     calculateHoldings(transactions) {
         const positions = {};
 
+        const enrichedTransactions = this.injectHardcodedSplits(transactions);
+
         // 按日期排序
-        const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const sorted = [...enrichedTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         for (const tx of sorted) {
             // 調試：顯示所有交易的 action
@@ -223,7 +258,7 @@ const Dashboard = {
             }
 
             // 跳過非相關交易類型
-            if (!['BUY', 'SELL', 'SPLIT', 'TRANSFER_OUT', 'TRANSFER_IN'].includes(tx.action)) continue;
+            if (!['BUY', 'SELL', 'SPLIT', 'HARDCODED_SPLIT', 'TRANSFER_OUT', 'TRANSFER_IN'].includes(tx.action)) continue;
 
             console.log(`[Holdings] Processing: ${tx.date} ${tx.action} ${tx.symbol} x ${tx.quantity}`);
 
@@ -282,17 +317,21 @@ const Dashboard = {
                     originalQuantity: tx.quantity,
                     originalPrice: price
                 });
-            } else if (tx.action === 'SPLIT') {
+            } else if (tx.action === 'SPLIT' || tx.action === 'HARDCODED_SPLIT') {
                 // 股票分割
-                // tx.quantity 是分割後獲得的新股數
-                // 需要計算分割比例
-
                 const currentQuantity = pos.quantity;
                 if (currentQuantity > 0) {
-                    // 分割後總股數 = 現有股數 + 新獲得股數
-                    const newTotalQuantity = currentQuantity + tx.quantity;
-                    // 分割比例
-                    const splitRatio = newTotalQuantity / currentQuantity;
+                    let splitRatio = 1;
+                    let newTotalQuantity = currentQuantity;
+
+                    if (tx.action === 'HARDCODED_SPLIT') {
+                        splitRatio = tx.ratio;
+                        newTotalQuantity = currentQuantity * splitRatio;
+                    } else {
+                        // tx.quantity 是分割後獲得的新股數
+                        newTotalQuantity = currentQuantity + tx.quantity;
+                        splitRatio = newTotalQuantity / currentQuantity;
+                    }
 
                     console.log(`Stock Split: ${symbol}, ratio: ${splitRatio.toFixed(4)}, before: ${currentQuantity}, after: ${newTotalQuantity}`);
 
@@ -330,10 +369,11 @@ const Dashboard = {
         const positions = {};
         let realizedPnL = 0;
 
-        const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const enrichedTransactions = this.injectHardcodedSplits(transactions);
+        const sorted = [...enrichedTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         for (const tx of sorted) {
-            if (!['BUY', 'SELL', 'SPLIT'].includes(tx.action)) continue;
+            if (!['BUY', 'SELL', 'SPLIT', 'HARDCODED_SPLIT'].includes(tx.action)) continue;
 
             const symbol = tx.symbol;
             if (!symbol) continue;
@@ -366,14 +406,19 @@ const Dashboard = {
                 }
                 // 扣除手續費
                 realizedPnL -= (tx.fees || 0);
-            } else if (tx.action === 'SPLIT') {
+            } else if (tx.action === 'SPLIT' || tx.action === 'HARDCODED_SPLIT') {
                 // 股票分割調整
                 const lots = positions[symbol];
                 if (lots && lots.length > 0) {
                     const currentQuantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
                     if (currentQuantity > 0) {
-                        const newTotalQuantity = currentQuantity + tx.quantity;
-                        const splitRatio = newTotalQuantity / currentQuantity;
+                        let splitRatio = 1;
+                        if (tx.action === 'HARDCODED_SPLIT') {
+                            splitRatio = tx.ratio;
+                        } else {
+                            const newTotalQuantity = currentQuantity + tx.quantity;
+                            splitRatio = newTotalQuantity / currentQuantity;
+                        }
 
                         for (const lot of lots) {
                             lot.quantity *= splitRatio;
@@ -494,8 +539,8 @@ const Dashboard = {
                     historicalPrices[symbol][p.date] = p.price;
                 }
 
-                // 若已清倉，且有最近的交易日，補上最後一筆價格延伸到今天嗎？
-                // 不需要，因為持有量為 0，不會用到價格。
+                // 延遲 1.5 秒，避免觸發 Proxy 速率限制
+                await new Promise(r => setTimeout(r, 1500));
 
             } catch (error) {
                 console.warn(`[Historical] ${symbol} 取得歷史價格失敗:`, error);
@@ -514,8 +559,21 @@ const Dashboard = {
         const splitAdjustments = this.calculateSplitAdjustments(sorted, endDate);
         console.log('[Historical] 分割調整倍數:', splitAdjustments);
 
+        // --- S&P 500 基準線：取得 SPY 歷史價格 ---
+        let spyPrices = {};
+        try {
+            const spyData = await PriceService.getHistoricalPrices('SPY', startDate, endDate);
+            for (const p of spyData) {
+                spyPrices[p.date] = p.price;
+            }
+            console.log(`[Benchmark] SPY: ${Object.keys(spyPrices).length} 筆歷史價格`);
+        } catch (error) {
+            console.warn('[Benchmark] SPY 歷史價格取得失敗:', error);
+        }
+
         // 準備完整交易列表 (包含所有類型，如 DEPOSIT/WITHDRAW)，用於計算現金
-        const allTxSorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const enrichedTransactions = this.injectHardcodedSplits(transactions);
+        const allTxSorted = [...enrichedTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         // 增量狀態
         let runningCash = 0;
@@ -525,6 +583,13 @@ const Dashboard = {
 
         let previousValue = 0;
         let previousMonth = -1;
+
+        // --- Benchmark 狀態：模擬每筆 DEPOSIT 全部買入 SPY ---
+        let benchmarkSpyShares = 0;  // 累計持有 SPY 股數
+        let benchmarkCash = 0;       // benchmark 剩餘現金（匯入當天若無 SPY 價格則暫存）
+        let lastSpyPrice = 0;        // 最後已知 SPY 價格
+        const benchmarkHistory = [];  // 基準線歷史
+        let benchmarkTxIndex = 0;     // benchmark 用的交易索引
 
         // 每日取樣 (跳過週末)
         const currentDate = new Date(startDate);
@@ -543,6 +608,7 @@ const Dashboard = {
             if (tx.price > 0 && tx.symbol) lastKnownPrices[tx.symbol] = tx.price;
             txIndex++;
         }
+        // benchmark 從索引 0 開始，在每日迴圈中自行追上（不跳過早期 DEPOSIT）
 
         while (currentDate <= endDate) {
             // 跳過週末 (週六=6, 週日=0)
@@ -578,14 +644,20 @@ const Dashboard = {
                     price = lastKnownPrices[symbol] || currentPrices[symbol] || 0;
                 }
 
-                // 分割調整量
+                // 分割調整量（支援多次分割的累積效果）
                 let adjustedQuantity = quantity;
-                const adjustment = splitAdjustments[symbol];
-                if (adjustment && currentDate < new Date(adjustment.splitDate)) {
-                    adjustedQuantity = quantity * adjustment.ratio;
-                    // 調試：顯示分割調整
-                    if (dateStr.startsWith('2025-02') || dateStr.startsWith('2024-12')) {
-                        console.log(`[Split Debug] ${dateStr} ${symbol}: qty=${quantity} -> adjusted=${adjustedQuantity} (ratio=${adjustment.ratio})`);
+                const splits = splitAdjustments[symbol];
+                if (splits && splits.length > 0) {
+                    for (const split of splits) {
+                        if (currentDate < new Date(split.splitDate)) {
+                            adjustedQuantity *= split.ratio;
+                        }
+                    }
+                    if (adjustedQuantity !== quantity) {
+                        // 調試：顯示分割調整
+                        if (dateStr.startsWith('2024-06') || dateStr.startsWith('2024-05')) {
+                            console.log(`[Split Debug] ${dateStr} ${symbol}: qty=${quantity} -> adjusted=${adjustedQuantity.toFixed(2)}`);
+                        }
                     }
                 }
 
@@ -618,6 +690,37 @@ const Dashboard = {
                 value: totalValue
             });
 
+            // --- Benchmark：處理當日 DEPOSIT/WITHDRAW 並計算 SPY 市值 ---
+            while (benchmarkTxIndex < allTxSorted.length && new Date(allTxSorted[benchmarkTxIndex].date) <= currentDate) {
+                const btx = allTxSorted[benchmarkTxIndex];
+                if (btx.action === 'DEPOSIT') {
+                    benchmarkCash += Math.abs(btx.amount || 0);
+                } else if (btx.action === 'WITHDRAW') {
+                    benchmarkCash -= Math.abs(btx.amount || 0);
+                } else if (btx.action === 'CASH_TRANSFER') {
+                    benchmarkCash += (btx.amount || 0);
+                }
+                benchmarkTxIndex++;
+            }
+
+            // 取得當日 SPY 價格
+            const spyPrice = this.findClosestPrice(spyPrices, dateStr);
+            if (spyPrice) lastSpyPrice = spyPrice;
+
+            // 有現金且有 SPY 價格 → 模擬全額買入
+            if (benchmarkCash > 0 && lastSpyPrice > 0) {
+                const sharesToBuy = benchmarkCash / lastSpyPrice;
+                benchmarkSpyShares += sharesToBuy;
+                benchmarkCash = 0;
+            }
+
+            // benchmark 當日市值
+            const benchmarkValue = (benchmarkSpyShares * (lastSpyPrice || 0)) + Math.max(0, benchmarkCash);
+            benchmarkHistory.push({
+                date: dateStr,
+                value: benchmarkValue
+            });
+
             // 月度報酬計算
             const currentMonth = currentDate.getMonth();
             if (previousMonth !== currentMonth && previousValue > 0 && totalValue > 0) {
@@ -638,7 +741,7 @@ const Dashboard = {
             currentDate.setDate(currentDate.getDate() + 1);
         }
 
-        return { portfolioHistory, monthlyReturns, historicalPrices };
+        return { portfolioHistory, monthlyReturns, historicalPrices, benchmarkHistory };
     },
 
     /**
@@ -669,7 +772,7 @@ const Dashboard = {
         }
 
         // 更新持股 (僅數量)
-        if (['BUY', 'SELL', 'SPLIT', 'TRANSFER_OUT', 'TRANSFER_IN'].includes(tx.action) && tx.symbol) {
+        if (['BUY', 'SELL', 'SPLIT', 'HARDCODED_SPLIT', 'TRANSFER_OUT', 'TRANSFER_IN'].includes(tx.action) && tx.symbol) {
             if (!holdings[tx.symbol]) holdings[tx.symbol] = 0;
 
             if (tx.action === 'BUY' || tx.action === 'TRANSFER_IN') {
@@ -678,6 +781,8 @@ const Dashboard = {
                 holdings[tx.symbol] -= tx.quantity;
             } else if (tx.action === 'SPLIT') {
                 holdings[tx.symbol] += tx.quantity;
+            } else if (tx.action === 'HARDCODED_SPLIT') {
+                holdings[tx.symbol] *= tx.ratio;
             }
 
             // 修正浮點數
@@ -722,54 +827,77 @@ const Dashboard = {
     },
 
     /**
-     * 計算分割調整倍數
+     * 計算分割調整倍數（支援多次分割）
      * @param {Array} transactions - 交易紀錄
      * @param {Date} endDate - 結束日期
-     * @returns {Object} { symbol: { splitDate, ratio } }
+     * @returns {Object} { symbol: [{ splitDate, ratio }, ...] } 按日期排序
      */
     calculateSplitAdjustments(transactions, endDate) {
         const adjustments = {};
 
         // 手動補丁: 針對 CSV 缺失但 Google Finance 已調整價格的分割
-        // ratio: 分割後獲得的股數比例 (1:4 拆股 = ratio 4)
         const HARDCODED_SPLITS = {
-            'SSO': { ratio: 2, splitDate: '2025-12-31' },
-            'QLD': { ratio: 2, splitDate: '2025-11-20' },
-            // 台股 ETF 分割 (2025/6/18 生效)
-            '0050.TW': { ratio: 4, splitDate: '2025-06-18' },  // 0050 1:4 拆股
-            '0056.TW': { ratio: 4, splitDate: '2025-06-18' },  // 0056 1:4 拆股
-            '006208.TW': { ratio: 4, splitDate: '2025-06-18' } // 富邦台50 1:4 拆股
+            'SSO': [{ ratio: 2, splitDate: '2025-12-31' }],
+            'QLD': [{ ratio: 2, splitDate: '2025-11-20' }],
+            '0050.TW': [{ ratio: 4, splitDate: '2025-06-18' }]
         };
 
         // 載入預設值
-        for (const [sym, setting] of Object.entries(HARDCODED_SPLITS)) {
-            adjustments[sym] = setting;
+        for (const [sym, splits] of Object.entries(HARDCODED_SPLITS)) {
+            adjustments[sym] = [...splits];
         }
 
-        // 找出所有 SPLIT 交易 (覆蓋或確認)
-        const splits = transactions.filter(tx => tx.action === 'SPLIT');
+        // 找出所有 SPLIT 交易
+        const splitTxs = transactions.filter(tx => tx.action === 'SPLIT');
 
-        for (const split of splits) {
-            const symbol = split.symbol;
-            if (!symbol) continue;
+        // 合併同日期同 symbol 的 SPLIT（解決碎股覆蓋問題）
+        const mergedSplits = {};
+        for (const split of splitTxs) {
+            if (!split.symbol) continue;
+            const key = `${split.symbol}_${split.date}`;
+            if (!mergedSplits[key]) {
+                mergedSplits[key] = { symbol: split.symbol, date: split.date, totalQuantity: 0 };
+            }
+            mergedSplits[key].totalQuantity += split.quantity;
+        }
 
-            // 計算分割前的持股數量
+        // 按日期排序後逐一處理每個分割事件
+        const sortedMergedSplits = Object.values(mergedSplits)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        for (const merged of sortedMergedSplits) {
+            const symbol = merged.symbol;
+
+            // 計算分割前的持股數量（只看此次分割之前的交易）
             const preSplitTxs = transactions.filter(tx =>
                 tx.symbol === symbol &&
-                new Date(tx.date) < new Date(split.date)
+                new Date(tx.date) < new Date(merged.date)
             );
             const preSplitHoldings = this.calculateHoldings(preSplitTxs);
             const preSplitQty = preSplitHoldings.find(h => h.symbol === symbol)?.quantity || 0;
 
             if (preSplitQty > 0) {
-                // 分割比例 = (分割前數量 + 新增數量) / 分割前數量
-                const ratio = (preSplitQty + split.quantity) / preSplitQty;
-                adjustments[symbol] = {
-                    splitDate: split.date,
-                    ratio: ratio
-                };
-                console.log(`[Split] ${symbol}: ${preSplitQty} -> ${preSplitQty + split.quantity}, ratio=${ratio.toFixed(4)}`);
+                const ratio = (preSplitQty + merged.totalQuantity) / preSplitQty;
+
+                if (!adjustments[symbol]) {
+                    adjustments[symbol] = [];
+                }
+                // 避免重複（hardcoded 可能與 CSV 重疊）
+                const existing = adjustments[symbol].find(s => s.splitDate === merged.date);
+                if (!existing) {
+                    adjustments[symbol].push({
+                        splitDate: merged.date,
+                        ratio: ratio
+                    });
+                }
+
+                console.log(`[Split] ${symbol}: ${preSplitQty.toFixed(3)} -> ${(preSplitQty + merged.totalQuantity).toFixed(3)}, ratio=${ratio.toFixed(4)}, date=${merged.date}`);
             }
+        }
+
+        // 確保每個 symbol 的分割按日期排序
+        for (const sym of Object.keys(adjustments)) {
+            adjustments[sym].sort((a, b) => new Date(a.splitDate) - new Date(b.splitDate));
         }
 
         return adjustments;
@@ -853,10 +981,14 @@ const Dashboard = {
                         }
 
                         let qty = tx.quantity;
-                        // 檢查是否有 Split 調整
-                        const adj = splitAdjustments[tx.symbol];
-                        if (adj && new Date(tx.date) < new Date(adj.splitDate)) {
-                            qty = tx.quantity * adj.ratio;
+                        // 檢查是否有 Split 調整（多次分割累積）
+                        const adjs = splitAdjustments[tx.symbol];
+                        if (adjs) {
+                            for (const adj of adjs) {
+                                if (new Date(tx.date) < new Date(adj.splitDate)) {
+                                    qty *= adj.ratio;
+                                }
+                            }
                         }
                         amount = qty * price;
                     } else {
@@ -872,10 +1004,14 @@ const Dashboard = {
                         }
 
                         let qty = tx.quantity;
-                        // 檢查是否有 Split 調整
-                        const adj = splitAdjustments[tx.symbol];
-                        if (adj && new Date(tx.date) < new Date(adj.splitDate)) {
-                            qty = tx.quantity * adj.ratio;
+                        // 檢查是否有 Split 調整（多次分割累積）
+                        const adjs = splitAdjustments[tx.symbol];
+                        if (adjs) {
+                            for (const adj of adjs) {
+                                if (new Date(tx.date) < new Date(adj.splitDate)) {
+                                    qty *= adj.ratio;
+                                }
+                            }
                         }
                         amount = qty * price;
                     } else {

@@ -169,13 +169,13 @@ const Transactions = {
         uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            if (file) this.handleCSVFile(file);
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length > 0) this.handleCSVFiles(files);
         });
 
         fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) this.handleCSVFile(file);
+            const files = Array.from(e.target.files);
+            if (files.length > 0) this.handleCSVFiles(files);
         });
 
         if (confirmBtn) {
@@ -184,29 +184,41 @@ const Transactions = {
     },
 
     /**
-     * 處理 CSV 檔案
+     * 處理多個 CSV 檔案
      */
-    async handleCSVFile(file) {
-        if (!file.name.endsWith('.csv')) {
-            App.showToast('請選擇 CSV 檔案', 'error');
+    async handleCSVFiles(files) {
+        let allTransactions = [];
+        let hasError = false;
+
+        for (const file of files) {
+            if (!file.name.endsWith('.csv')) {
+                App.showToast(`略過 ${file.name}，請選擇 CSV 檔案`, 'error');
+                continue;
+            }
+
+            try {
+                const text = await file.text();
+                const brokerType = document.getElementById('broker-select')?.value || 'auto';
+                const transactions = CSVParser.parse(text, brokerType);
+
+                if (transactions.length > 0) {
+                    allTransactions = allTransactions.concat(transactions);
+                }
+            } catch (error) {
+                console.error(`解析檔案 ${file.name} 錯誤:`, error);
+                App.showToast(`解析 ${file.name} 失敗: ` + error.message, 'error');
+                hasError = true;
+            }
+        }
+
+        if (allTransactions.length === 0 && !hasError) {
+            App.showToast('未找到有效的交易紀錄', 'warning');
             return;
         }
 
-        try {
-            const text = await file.text();
-            const brokerType = document.getElementById('broker-select')?.value || 'auto';
-            const transactions = CSVParser.parse(text, brokerType);
-
-            if (transactions.length === 0) {
-                App.showToast('未找到有效的交易紀錄', 'warning');
-                return;
-            }
-
-            this.pendingCSVData = transactions;
-            this.showCSVPreview(transactions);
-        } catch (error) {
-            console.error('CSV 解析錯誤:', error);
-            App.showToast('解析失敗: ' + error.message, 'error');
+        if (allTransactions.length > 0) {
+            this.pendingCSVData = allTransactions;
+            this.showCSVPreview(allTransactions);
         }
     },
 
